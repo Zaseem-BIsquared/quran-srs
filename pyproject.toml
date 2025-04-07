@@ -9,5 +9,7 @@ dependencies = [
     "monsterui>=1.0.10",
     "numpy>=2.2.3",
     "pandas>=2.2.3",
+    "playwright>=1.51.0",
+    "pytest-playwright>=0.7.0",
     "python-fasthtml>=0.12.1",
 ]
