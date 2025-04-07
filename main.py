@@ -596,4 +596,5 @@ def backup():
     return FileResponse(db_path, filename="quran_backup.db")
 
 
-serve()
+if __name__ == "__main__":
+    serve()
