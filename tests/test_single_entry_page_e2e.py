@@ -1,11 +1,13 @@
 import os, sys
 from playwright.sync_api import Page, expect
-from fasthtml.common import *
+from datetime import datetime, timedelta
+from fasthtml.common import database
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 db = database("data/quran.db")
 revisions = db.t.revisions
+next_day = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
 
 
 def test_url(page: Page) -> None:
@@ -22,9 +24,8 @@ def test_default_radio_selection(page: Page) -> None:
 
 
 def test_form_submission(page: Page) -> None:
-    date = "2025-04-08"
     page.goto("http://localhost:5001/revision/add?page=56")
-    page.get_by_role("textbox", name="Revision Date").fill(date)
+    page.get_by_role("textbox", name="Revision Date").fill(next_day)
     page.get_by_role("radio", name="😄 Ok").check()
     page.get_by_role("button", name="Save").click()
     expect(page.get_by_role("heading", name="- S3 Aal-e-Imran")).to_contain_text(
@@ -33,7 +34,7 @@ def test_form_submission(page: Page) -> None:
     # Check if the revision was added to the database
     last_revision = revisions()[-1]
     assert last_revision["page"] == 56
-    assert last_revision["revision_date"] == date
+    assert last_revision["revision_date"] == next_day
     assert last_revision["rating"] == 0
 
 
@@ -45,8 +46,8 @@ def test_cancel_button(page: Page) -> None:
 
 def test_different_date_to_flow_to_next_page(page: Page) -> None:
     page.goto("http://localhost:5001/revision/add?page=56")
-    page.get_by_role("textbox", name="Revision Date").fill("2025-04-08")
+    page.get_by_role("textbox", name="Revision Date").fill(next_day)
     page.get_by_role("button", name="Save").click()
     expect(page.get_by_role("textbox", name="Revision Date")).to_have_value(
-        "2025-04-08", timeout=1000
+        next_day, timeout=1000
     )
