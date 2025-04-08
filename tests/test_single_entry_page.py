@@ -3,23 +3,25 @@ from datetime import datetime
 from starlette.testclient import TestClient
 from fasthtml.common import database
 
-
 # In order to import the app from the main module, we need to add the parent directory to the system path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from main import app
-
-DUMMY_PAGE = 1000000  # This is a dummy page number for testing purposes
 
 db = database("data/quran.db")
 revisions = db.t.revisions
 initial_revisions_count = len(revisions())
 
+DUMMY_PAGE = 1000000  # This is a dummy page number for testing purposes
 current_date = datetime.now().strftime("%Y-%m-%d")
-
 client = TestClient(app)
 
 
-# This route is responsible for handling navigation to the single entry page
+def get_dummy_page_data() -> dict:
+    return revisions(where=f"page = {DUMMY_PAGE}")[0]
+
+
+# This route is responsible for handling navigation
+# As we are using a single textbox for bulk entry and single entry.
 def test_entry_route():
     response = client.post(
         "/revision/entry",
@@ -32,7 +34,7 @@ def test_entry_route():
     assert response.status_code == 200
 
 
-def test_decimal_value():
+def test_decimal_value_on_entry_route():
     response = client.post(
         "/revision/entry",
         headers={"Content-Type": "application/x-www-form-urlencoded"},
@@ -41,6 +43,11 @@ def test_decimal_value():
             "page": "56.20",
         },
     )
+    assert response.status_code == 200
+
+
+def test_create_landing_route():
+    response = client.get("/revision/add?page=56")
     assert response.status_code == 200
 
 
@@ -62,8 +69,14 @@ def test_create_page():
     )  # Check if the page was added
 
 
+def test_update_landing_route():
+    id = get_dummy_page_data()["id"]
+    response = client.get(f"/revision/edit/{id}")
+    assert response.status_code == 200
+
+
 def test_update_page():
-    page_data = revisions(where=f"page = {DUMMY_PAGE}")[0]
+    page_data = get_dummy_page_data()
     page_data["rating"] = -1  # Update the rating
 
     response = client.post(
@@ -79,7 +92,7 @@ def test_update_page():
 
 
 def test_delete_page():
-    id = revisions(where=f"page = {DUMMY_PAGE}")[0]["id"]
+    id = get_dummy_page_data()["id"]
 
     response = client.delete(f"/revision/delete/{id}")
     assert response.status_code == 200
