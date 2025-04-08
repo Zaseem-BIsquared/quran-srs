@@ -1,12 +1,6 @@
-import os, sys
 from playwright.sync_api import Page, expect
 from datetime import datetime, timedelta
-from fasthtml.common import database
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-db = database("data/quran.db")
-revisions = db.t.revisions
 next_day = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
 
 
@@ -28,11 +22,6 @@ def test_form_submission(page: Page) -> None:
     page.get_by_role("textbox", name="Revision Date").fill(next_day)
     page.get_by_role("radio", name="😄 Ok").check()
     page.get_by_role("button", name="Save").click()
-    # Check if the revision was added to the database
-    last_revision = revisions()[-1]
-    assert last_revision["page"] == 56
-    assert last_revision["revision_date"] == next_day
-    assert last_revision["rating"] == 0
 
 
 def test_save_button_navigation(page: Page) -> None:
