@@ -1,108 +1,86 @@
-import os, sys, pytest, re
-from datetime import datetime, timedelta
+import os, sys
+from datetime import datetime
 from starlette.testclient import TestClient
+from fasthtml.common import database
+
 
 # In order to import the app from the main module, we need to add the parent directory to the system path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from main import app
 
+DUMMY_PAGE = 1000000  # This is a dummy page number for testing purposes
 
-client = TestClient(app)
+db = database("data/quran.db")
+revisions = db.t.revisions
+initial_revisions_count = len(revisions())
+
 current_date = datetime.now().strftime("%Y-%m-%d")
 
-
-# Test cases for the UI
-def test_title():
-    t = client.get("/revision/add?page=56").text
-    assert "<title>Quran SRS</title>" in t
+client = TestClient(app)
 
 
-def test_heading():
-    t = client.get("/revision/add?page=56").text
-    assert "56 - S3 Aal-e-Imran Page 5" in t
-
-
-def test_page_input():
-    t = client.get("/revision/add?page=56").text
-    assert re.search(r'<input.*?name="page".*?value="56"', t)
-
-
-def test_date_input():
-    t = client.get("/revision/add?page=56").text
-    assert re.search(
-        r'<input.*?name="revision_date".*?value="{}"'.format(current_date), t
+# This route is responsible for handling navigation to the single entry page
+def test_entry_route():
+    response = client.post(
+        "/revision/entry",
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        data={
+            "type": "single",
+            "page": "56",
+        },
     )
-
-
-def test_default_radio_selection():
-    t = client.get("/revision/add?page=56").text
-    assert re.search(r'value="1".*?checked', t)
-
-
-# Test cases for different page values
-def test_integer_value():
-    t = client.get("/revision/add?page=56").status_code
-    assert t == 200
+    assert response.status_code == 200
 
 
 def test_decimal_value():
-    t = client.get("/revision/add?page=56.20").status_code
-    assert t == 200
+    response = client.post(
+        "/revision/entry",
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        data={
+            "type": "single",
+            "page": "56.20",
+        },
+    )
+    assert response.status_code == 200
 
 
-def test_string_value():
-    with pytest.raises(ValueError):
-        client.get("/revision/add?page=abc")
+def test_create_page():
+    response = client.post(
+        "/revision/add",
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        data={
+            "id": "",
+            "user_id": "1",
+            "page": DUMMY_PAGE,
+            "revision_date": current_date,
+            "rating": 1,
+        },
+    )
+    assert response.status_code == 200
+    assert (initial_revisions_count + 1) == len(
+        revisions()
+    )  # Check if the page was added
 
 
-def test_string_with_number_value():
-    with pytest.raises(ValueError):
-        client.get("/revision/add?page=105a")
+def test_update_page():
+    page_data = revisions(where=f"page = {DUMMY_PAGE}")[0]
+    page_data["rating"] = -1  # Update the rating
+
+    response = client.post(
+        "/revision/edit",
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        data=page_data,
+    )
+    assert response.status_code == 200
+    assert revisions[page_data["id"]]["rating"] == -1  # Check if the rating was updated
+    assert (initial_revisions_count + 1) == len(
+        revisions()
+    )  # Check if the page is still present
 
 
-def test_empty_value():
-    with pytest.raises(ValueError):
-        client.get("/revision/add?page=")
+def test_delete_page():
+    id = revisions(where=f"page = {DUMMY_PAGE}")[0]["id"]
 
-
-def test_missing_page():
-    assert client.get("/revision/add").is_client_error
-
-
-def test_page_out_of_range():
-    url = client.get("/revision/add?page=605").url.__str__()
-    assert url.endswith("/")
-
-
-# def test_create_page():
-#     # Simulate a POST request to create a new page
-#     response = client.post(
-#         "/revision/add",
-#         headers={"Content-Type": "application/x-www-form-urlencoded"},
-#         data={
-#             "id": "",
-#             "user_id": "1",
-#             "page": "56",
-#             "revision_date": current_date,
-#             "rating": 1,
-#         },
-#     )
-#     assert "57 - S3 Aal-e-Imran" in response.text
-
-
-# def test_different_date_to_flow_to_next_page():
-#     next_day = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
-#     response = client.post(
-#         "/revision/add",
-#         headers={"Content-Type": "application/x-www-form-urlencoded"},
-#         data={
-#             "id": "",
-#             "user_id": "1",
-#             "page": "56",
-#             "revision_date": next_day,
-#             "rating": 1,
-#         },
-#     )
-#     assert re.search(
-#         r'<input.*?name="revision_date".*?value="{}"'.format(next_day), response.text
-#     )
+    response = client.delete(f"/revision/delete/{id}")
+    assert response.status_code == 200
+    assert initial_revisions_count == len(revisions())  # Check if the page was deleted
