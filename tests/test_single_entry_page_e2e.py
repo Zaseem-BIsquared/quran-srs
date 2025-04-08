@@ -10,7 +10,7 @@ revisions = db.t.revisions
 next_day = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
 
 
-def test_url(page: Page) -> None:
+def test_single_entry_navigation(page: Page) -> None:
     page.goto("http://localhost:5001/")
     page.get_by_role("textbox", name="page").click()
     page.get_by_role("textbox", name="page").type("56", delay=150)
@@ -38,7 +38,7 @@ def test_form_submission(page: Page) -> None:
     assert last_revision["rating"] == 0
 
 
-def test_cancel_button(page: Page) -> None:
+def test_cancel_button_navigation(page: Page) -> None:
     page.goto("http://localhost:5001/revision/add?page=56")
     page.get_by_role("button", name="Cancel").click()
     expect(page).to_have_url("http://localhost:5001/")
