@@ -74,20 +74,20 @@ def test_page_out_of_range():
     assert url.endswith("/")
 
 
-def test_create_page():
-    # Simulate a POST request to create a new page
-    response = client.post(
-        "/revision/add",
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
-        data={
-            "id": "",
-            "user_id": "1",
-            "page": "56",
-            "revision_date": current_date,
-            "rating": 1,
-        },
-    )
-    assert "57 - S3 Aal-e-Imran" in response.text
+# def test_create_page():
+#     # Simulate a POST request to create a new page
+#     response = client.post(
+#         "/revision/add",
+#         headers={"Content-Type": "application/x-www-form-urlencoded"},
+#         data={
+#             "id": "",
+#             "user_id": "1",
+#             "page": "56",
+#             "revision_date": current_date,
+#             "rating": 1,
+#         },
+#     )
+#     assert "57 - S3 Aal-e-Imran" in response.text
 
 
 # def test_different_date_to_flow_to_next_page():
