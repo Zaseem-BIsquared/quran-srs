@@ -1,12 +1,9 @@
-import os, sys
+from main import app
 from datetime import datetime
 from starlette.testclient import TestClient
 from fasthtml.common import database
 from bs4 import BeautifulSoup
 
-# In order to import the app from the main module, we need to add the parent directory to the system path
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from main import app
 
 db = database("data/quran.db")
 revisions = db.t.revisions
