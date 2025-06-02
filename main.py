@@ -5,6 +5,7 @@ from utils import *
 import pandas as pd
 from io import BytesIO
 from collections import defaultdict
+from datetime import timedelta, datetime
 
 RATING_MAP = {"1": "✅ Good", "0": "😄 Ok", "-1": "❌ Bad"}
 OPTION_MAP = {
@@ -552,6 +553,11 @@ def main_area(*args, active=None, auth=None):
                     "New Memorization",
                     href="/new_memorization/juz",
                     cls=is_active("New Memorization"),
+                ),
+                A(
+                    "Watch List",
+                    href="/watch_list",
+                    cls=is_active("Watch List"),
                 ),
                 A("Tables", href="/tables", cls=is_active("Tables")),
                 A("logout", href="/logout"),
@@ -2235,6 +2241,7 @@ def render_row_based_on_type(
     title_range=None,
     details_range=None,
     rev_date=None,
+    data_for=None,
 ):
     _surahs = sorted({r["surah_id"] for r in records})
     _pages = sorted([r["page_number"] for r in records])
@@ -2288,7 +2295,17 @@ def render_row_based_on_type(
             # details = details_range
     else:
         get_page = filter_url
-
+    if data_for == "watch_list":
+        print(records)
+        rev_count = str(sum(1 for item in records if item["mode_id"] == 4))
+        print(rev_count)
+        rev_date = records[-1]["revision_date"]
+        print(rev_date)
+        due_date = (
+            (datetime.today() - datetime.strptime(rev_date, "%Y-%m-%d")).days
+            if rev_date
+            else ""
+        )
     hx_attrs = {
         "hx_get": get_page,
         "hx_vals": '{"title": "CURRENT_TITLE", "description": "CURRENT_DETAILS"}'.replace(
@@ -2303,7 +2320,15 @@ def render_row_based_on_type(
     return Tr(
         Td(title),
         Td(details),
-        Td(rev_date) if rev_date is not None else None,
+        Td(rev_date) if rev_date else None,
+        (
+            (
+                Td(f"{due_date} days ago" if due_date else ""),
+                Td(rev_count if rev_count else ""),
+            )
+            if data_for == "watch_list"
+            else None
+        ),
         (
             Td(
                 A(
@@ -2872,6 +2897,64 @@ async def post(
 
     revisions.insert_all(parsed_data)
     return Redirect(f"/new_memorization/{current_type}")
+
+
+@rt("/watch_list")
+def watch_list(auth):
+    query = f"""SELECT items.id, items.surah_id, pages.juz_number, pages.page_number, revisions.revision_date, revisions.mode_id
+        FROM items 
+        LEFT JOIN hafizs_items ON items.id = hafizs_items.item_id AND hafizs_items.hafiz_id = {auth}
+        LEFT JOIN pages ON items.page_id = pages.id
+        LEFT JOIN revisions ON items.id = revisions.item_id
+        WHERE hafizs_items.status IS 'watch_list' AND items.active != 0"""
+
+    recent_reviews = db.q(query)
+    print(recent_reviews)
+    grouped = group_by_type(recent_reviews, "page")
+    # print(grouped)
+    rows = [
+        render_row_based_on_type(type_number, records, "page", data_for="watch_list")
+        for type_number, records in grouped.items()
+    ]
+    table = Div(
+        Table(
+            Thead(
+                Tr(
+                    Th("NAME"),
+                    Th("RANGE/DETAILS"),
+                    Th("LAST REVISION DATE"),
+                    Th("DUE"),
+                    Th("REVISION COUNT"),
+                )
+            ),
+            Tbody(*rows),
+        ),
+        cls="uk-overflow-auto p-4",
+    )
+    modal = ModalContainer(
+        ModalDialog(
+            ModalHeader(
+                ModalTitle(id="modal-title"),
+                P(cls=TextPresets.muted_sm, id="modal-description"),
+                ModalCloseButton(),
+                cls="space-y-3",
+            ),
+            ModalBody(
+                Div(id="modal-body"),
+                data_uk_overflow_auto=True,
+            ),
+            ModalFooter(),
+            cls="uk-margin-auto-vertical",
+        ),
+        id="modal",
+    )
+    return main_area(
+        H1("Watch List", cls="uk-text-center"),
+        table,
+        modal,
+        active="Watch List",
+        auth=auth,
+    )
 
 
 serve()
