@@ -2296,16 +2296,17 @@ def render_row_based_on_type(
     else:
         get_page = filter_url
     if mode_name == "watch_list":
-        print(records)
+        # print(records)
         rev_count = str(sum(1 for item in records if item["mode_id"] == 4))
-        print(rev_count)
+        # print(rev_count)
         rev_date = records[-1]["revision_date"]
-        print(rev_date)
+        # print(rev_date)
         due_date = (
             (datetime.today() - datetime.strptime(rev_date, "%Y-%m-%d")).days
             if rev_date
             else ""
         )
+        print(due_date)
     hx_attrs = {
         "hx_get": get_page,
         "hx_vals": '{"title": "CURRENT_TITLE", "description": "CURRENT_DETAILS", "mode_name": "MODE_NAME"}'.replace(
@@ -2323,7 +2324,7 @@ def render_row_based_on_type(
         Td(rev_date) if rev_date else None,
         (
             (
-                Td(f"{due_date} days ago" if due_date else ""),
+                Td(f"{due_date} days ago" if due_date != 0 else "Today"),
                 Td(rev_count if rev_count else ""),
             )
             if mode_name == "watch_list"
@@ -2338,7 +2339,11 @@ def render_row_based_on_type(
                         else (
                             display_next
                             if continue_new_memorization
-                            else "Start Memorization ➡️"
+                            else (
+                                "Record Revision ➡️"
+                                if mode_name == "watch_list"
+                                else "Start Memorization ➡️"
+                            )
                         )
                     ),
                     # **hx_attrs if continue_new_memorization else {},
@@ -2560,20 +2565,8 @@ def filter_table(
     title: str,
     description: str,
     mode_name: str,
+    qry,
 ):
-    if current_type == "juz":
-        condition = f"pages.juz_number = {type_number}"
-    elif current_type == "surah":
-        condition = f"items.surah_id = {type_number}"
-    elif current_type == "page":
-        condition = f"pages.page_number = {type_number}"
-    else:
-        return "Invalid current_type"
-    # TODO Change Query for watch_list
-    qry = f"""SELECT items.id, items.surah_id, pages.page_number, pages.juz_number, hafizs_items.status FROM items
-                          LEFT JOIN pages ON items.page_id = pages.id
-                          LEFT JOIN hafizs_items ON items.id = hafizs_items.item_id AND hafizs_items.hafiz_id = {auth}
-                          WHERE items.active != 0 AND hafizs_items.status IS NULL AND {condition}"""
     ct = db.q(qry)
 
     def render_row(record):
@@ -2660,7 +2653,21 @@ def filtered_table_for_new_memorization_modal(
     description: str,
     mode_name: str = "new_memorization",
 ):
-    return filter_table(auth, current_type, type_number, title, description, mode_name)
+    if current_type == "juz":
+        condition = f"pages.juz_number = {type_number}"
+    elif current_type == "surah":
+        condition = f"items.surah_id = {type_number}"
+    elif current_type == "page":
+        condition = f"pages.page_number = {type_number}"
+    else:
+        return "Invalid current_type"
+    qry = f"""SELECT items.id, items.surah_id, pages.page_number, pages.juz_number, hafizs_items.status FROM items
+                          LEFT JOIN pages ON items.page_id = pages.id
+                          LEFT JOIN hafizs_items ON items.id = hafizs_items.item_id AND hafizs_items.hafiz_id = {auth}
+                          WHERE items.active != 0 AND hafizs_items.status IS NULL AND {condition}"""
+    return filter_table(
+        auth, current_type, type_number, title, description, mode_name, qry
+    )
 
 
 @app.get("/watch_list/filter/{current_type}/{type_number}")
@@ -2672,7 +2679,21 @@ def filtered_table_for_new_memorization_modal(
     description: str,
     mode_name: str = "watch_list",
 ):
-    return filter_table(auth, current_type, type_number, title, description, mode_name)
+    if current_type == "juz":
+        condition = f"pages.juz_number = {type_number}"
+    elif current_type == "surah":
+        condition = f"items.surah_id = {type_number}"
+    elif current_type == "page":
+        condition = f"pages.page_number = {type_number}"
+    else:
+        return "Invalid current_type"
+    qry = f"""SELECT items.id, items.surah_id, pages.page_number, pages.juz_number, hafizs_items.status FROM items
+                          LEFT JOIN pages ON items.page_id = pages.id
+                          LEFT JOIN hafizs_items ON items.id = hafizs_items.item_id AND hafizs_items.hafiz_id = {auth}
+                          WHERE items.active != 0 AND hafizs_items.status IS "watch_list" AND {condition}"""
+    return filter_table(
+        auth, current_type, type_number, title, description, mode_name, qry
+    )
 
 
 def create_new_memorization_revision_form(
@@ -2969,6 +2990,69 @@ def get(
     mode_name = "watch_list"
     return bulk_entry_form(
         auth, item_ids, mode_name, current_type, is_part, revision_date
+    )
+
+
+def bulk_entry_post(
+    revision_date: str,
+    mode_id: int,
+    plan_id: int,
+    current_type: str,
+    auth,
+    form_data,
+):
+    plan_id = None
+    item_ids = form_data.getlist("ids")
+    parsed_data = []
+    for name, value in form_data.items():
+        if name.startswith("rating-"):
+            item_id = name.split("-")[1]
+            if item_id in item_ids:
+                if mode_id == 2:
+                    try:
+                        hafizs_items_id = hafizs_items(where=f"item_id = {item_id}")[0]
+                    except IndexError:
+                        hafizs_items.insert(
+                            Hafiz_Items(
+                                item_id=item_id, page_number=items[item_id].page_id
+                            )
+                        )
+                    hafizs_items_id = hafizs_items(where=f"item_id = {item_id}")[0].id
+                    mode_name = "new_memorization"
+                    hafizs_items.update(
+                        {"status": "newly_memorized", "mode_id": mode_id},
+                        hafizs_items_id,
+                    )
+                if mode_id == 4:
+                    mode_name = "watch_list"
+
+                parsed_data.append(
+                    Revision(
+                        item_id=int(item_id),
+                        rating=int(value),
+                        hafiz_id=auth,
+                        revision_date=revision_date,
+                        mode_id=mode_id,
+                        plan_id=plan_id,
+                    )
+                )
+
+    revisions.insert_all(parsed_data)
+    return Redirect(f"/{mode_name}/{current_type}")
+
+
+@rt("/watch_list/bulk_add/{current_type}")
+async def post(
+    revision_date: str,
+    mode_id: int,
+    plan_id: int,
+    current_type: str,
+    auth,
+    req,
+):
+    form_data = await req.form()
+    return bulk_entry_post(
+        revision_date, mode_id, plan_id, current_type, auth, form_data
     )
 
 
