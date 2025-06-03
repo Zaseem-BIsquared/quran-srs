@@ -556,7 +556,7 @@ def main_area(*args, active=None, auth=None):
                 ),
                 A(
                     "Watch List",
-                    href="/watch_list",
+                    href="/watch_list/page",
                     cls=is_active("Watch List"),
                 ),
                 A("Tables", href="/tables", cls=is_active("Tables")),
@@ -2241,7 +2241,7 @@ def render_row_based_on_type(
     title_range=None,
     details_range=None,
     rev_date=None,
-    data_for=None,
+    mode_name=None,
 ):
     _surahs = sorted({r["surah_id"] for r in records})
     _pages = sorted([r["page_number"] for r in records])
@@ -2276,11 +2276,11 @@ def render_row_based_on_type(
         else surahs[type_number].name
     )
 
-    filter_url = f"/new_memorization/filter/{current_type}/{type_number}"
+    filter_url = f"/{mode_name}/filter/{current_type}/{type_number}"
     if current_type == "page":
         item_ids = [item.id for item in items(where=f"page_id = {type_number}")]
         get_page = (
-            f"/new_memorization/add/{current_type}?item_id={item_ids[0]}"
+            f"/{mode_name}/add/{current_type}?item_id={item_ids[0]}"
             if len(item_ids) == 1
             else filter_url
         )
@@ -2295,7 +2295,7 @@ def render_row_based_on_type(
             # details = details_range
     else:
         get_page = filter_url
-    if data_for == "watch_list":
+    if mode_name == "watch_list":
         print(records)
         rev_count = str(sum(1 for item in records if item["mode_id"] == 4))
         print(rev_count)
@@ -2308,11 +2308,11 @@ def render_row_based_on_type(
         )
     hx_attrs = {
         "hx_get": get_page,
-        "hx_vals": '{"title": "CURRENT_TITLE", "description": "CURRENT_DETAILS"}'.replace(
+        "hx_vals": '{"title": "CURRENT_TITLE", "description": "CURRENT_DETAILS", "mode_name": "MODE_NAME"}'.replace(
             "CURRENT_TITLE", title
-        ).replace(
-            "CURRENT_DETAILS", details
-        ),
+        )
+        .replace("CURRENT_DETAILS", details)
+        .replace("MODE_NAME", mode_name),
         "target_id": "modal-body",
         "data_uk_toggle": "target: #modal",
     }
@@ -2326,7 +2326,7 @@ def render_row_based_on_type(
                 Td(f"{due_date} days ago" if due_date else ""),
                 Td(rev_count if rev_count else ""),
             )
-            if data_for == "watch_list"
+            if mode_name == "watch_list"
             else None
         ),
         (
@@ -2435,7 +2435,9 @@ def new_memorization(auth, current_type: str):
     ct = filter_query_records(auth)
     grouped = group_by_type(ct, current_type)
     not_memorized_rows = [
-        render_row_based_on_type(type_number, records, current_type)
+        render_row_based_on_type(
+            type_number, records, current_type, mode_name="new_memorization"
+        )
         for type_number, records in list(grouped.items())
     ]
     not_memorized_table = Div(
@@ -2503,6 +2505,7 @@ def new_memorization(auth, current_type: str):
             title_range=title_range,
             details_range=details_range,
             rev_date=revision_date,
+            mode_name="new_memorization",
         )
 
     newly_memorized_rows = list(
@@ -2645,7 +2648,7 @@ def filtered_table_for_new_memorization_modal(
 
 
 def create_new_memorization_revision_form(
-    current_type: str, title: str, description: str
+    current_type: str, title: str, description: str, mode_name: str
 ):
     def RadioLabel(o):
         value, label = o
@@ -2680,11 +2683,11 @@ def create_new_memorization_revision_form(
                 Button("Save", cls=ButtonT.primary),
                 A(
                     Button("Cancel", type="button", cls=ButtonT.secondary),
-                    href=f"/new_memorization/{current_type}",
+                    href=f"/{mode_name}/{current_type}",
                 ),
                 cls="flex justify-around items-center w-full",
             ),
-            action=f"/new_memorization/add/{current_type}",
+            action=f"/{mode_name}/add/{current_type}",
             method="POST",
         ),
         ModalTitle(
@@ -2699,27 +2702,32 @@ def create_new_memorization_revision_form(
     )
 
 
-@rt("/new_memorization/add/{current_type}")
-def get(
+def single_entry_form(
     current_type: str,
     item_id: str,
-    title: str = None,
-    description: str = None,
-    max_item_id: int = 836,
-    date: str = None,
+    mode_name: str,
+    title: str,
+    description: str,
+    max_item_id: int,
+    date: str,
 ):
     item_id = int(item_id)
     if item_id >= max_item_id:
         return Redirect(new_memorization)
-
     page = items[item_id].page_id
+    if mode_name == "watch_list":
+        mode_id = 4
+    if mode_name == "new_memorization":
+        mode_id = 2
     return Titled(
         f"{page} - {get_surah_name(item_id=item_id)} - {items[item_id].start_text}",
         fill_form(
-            create_new_memorization_revision_form(current_type, title, description),
+            create_new_memorization_revision_form(
+                current_type, title, description, mode_name
+            ),
             {
                 "page_no": page,
-                "mode_id": 2,
+                "mode_id": mode_id,
                 "plan_id": None,
                 "revision_date": date,
                 "item_id": item_id,
@@ -2729,7 +2737,38 @@ def get(
 
 
 @rt("/new_memorization/add/{current_type}")
-def post(current_type: str, page_no: int, item_id: int, revision_details: Revision):
+def get(
+    current_type: str,
+    item_id: str,
+    mode_name: str,
+    title: str = None,
+    description: str = None,
+    max_item_id: int = 836,
+    date: str = None,
+):
+    return single_entry_form(
+        current_type, item_id, mode_name, title, description, max_item_id, date
+    )
+
+
+@rt("/watch_list/add/{current_type}")
+def get(
+    current_type: str,
+    item_id: str,
+    mode_name: str,
+    title: str = None,
+    description: str = None,
+    max_item_id: int = 836,
+    date: str = None,
+):
+    return single_entry_form(
+        current_type, item_id, mode_name, title, description, max_item_id, date
+    )
+
+
+def single_entry_post(
+    current_type: str, page_no: int, item_id: int, revision_details: Revision
+):
     # The id is set to zer in the form, so we need to delete it
     # before inserting to generate the id automatically
     del revision_details.id
@@ -2740,12 +2779,29 @@ def post(current_type: str, page_no: int, item_id: int, revision_details: Revisi
         # updating the status of the item to memorized
         hafizs_items.insert(Hafiz_Items(item_id=item_id, page_number=page_no))
     hafizs_items_id = hafizs_items(where=f"item_id = {item_id}")[0].id
-    hafizs_items.update(
-        {"status": "newly_memorized", "mode_id": revision_details.mode_id},
-        hafizs_items_id,
-    )
+    mode_id = revision_details.mode_id
+    if mode_id == 2:
+        status = "newly_memorized"
+        mode_name = "new_memorization"
+        hafizs_items.update(
+            {"status": status, "mode_id": mode_id},
+            hafizs_items_id,
+        )
+    if mode_id == 4:
+        status = "watch_list"
+        mode_name = "watch_list"
     revisions.insert(revision_details)
-    return Redirect(f"/new_memorization/{current_type}")
+    return Redirect(f"/{mode_name}/{current_type}")
+
+
+@rt("/new_memorization/add/{current_type}")
+def post(current_type: str, page_no: int, item_id: int, revision_details: Revision):
+    return single_entry_post(current_type, page_no, item_id, revision_details)
+
+
+@rt("/watch_list/add/{current_type}")
+def post(current_type: str, page_no: int, item_id: int, revision_details: Revision):
+    return single_entry_post(current_type, page_no, item_id, revision_details)
 
 
 @app.get("/new_memorization/bulk_add/{current_type}")
@@ -2758,6 +2814,125 @@ def get(
     revision_date: str = None,
 ):
 
+    def _render_row(item_id):
+
+        def _render_radio(o):
+            value, label = o
+            is_checked = True if value == "1" else False
+            return FormLabel(
+                Radio(
+                    id=f"rating-{item_id}",
+                    value=value,
+                    checked=is_checked,
+                    cls="toggleable-radio",
+                ),
+                Span(label),
+                cls="space-x-2",
+            )
+
+        current_page_details = items[item_id]
+        return Tr(
+            Td(
+                CheckboxX(
+                    name="ids",
+                    value=item_id,
+                    cls="revision_ids",
+                    _at_click="handleCheckboxClick($event)",
+                )
+            ),
+            Td(current_page_details.surah_name),
+            Td(P(current_page_details.page_id)),
+            Td(current_page_details.part),
+            Td(P(current_page_details.start_text, cls=(TextT.xl))),
+            Td(
+                Div(
+                    *map(_render_radio, RATING_MAP.items()),
+                    cls=(FlexT.block, FlexT.row, FlexT.wrap, "gap-x-6 gap-y-4"),
+                )
+            ),
+        )
+
+    table = Table(
+        Thead(
+            Tr(
+                Th(
+                    CheckboxX(
+                        cls="select_all", x_model="selectAll", _at_change="toggleAll()"
+                    )
+                ),
+                Th("Surah"),
+                Th("Page"),
+                Th("Part"),
+                Th("Start"),
+                Th("Rating"),
+            )
+        ),
+        Tbody(*map(_render_row, item_ids)),
+        x_data=select_all_checkbox_x_data(
+            class_name="revision_ids",
+            is_select_all="true" if len(item_ids) != 0 else "false",
+        ),
+        x_init="toggleAll()",
+    )
+
+    action_buttons = Div(
+        Button(
+            "Save",
+            cls=ButtonT.primary,
+        ),
+        A(
+            Button("Cancel", type="button", cls=ButtonT.secondary),
+            href=f"/new_memorization/{current_type}",
+        ),
+        cls=(FlexT.block, FlexT.around, FlexT.middle, "w-full"),
+    )
+    start_description = f"{get_surah_name(item_id=item_ids[0])}"
+    end_description = (
+        f" => {items[item_ids[-1]].page_id} - {get_surah_name(item_id=item_ids[-1])}"
+    )
+    description = f"{items[item_ids[0]].page_id} - {start_description}"
+    return Titled(
+        (description if len(item_ids) == 1 else description + f"{end_description}"),
+        Form(
+            Hidden(name="mode_id", value=2),
+            Hidden(name="plan_id", value=None),
+            LabelInput(
+                "Revision Date",
+                name="revision_date",
+                type="date",
+                value=(revision_date or current_time("%Y-%m-%d")),
+            ),
+            Div(table, cls="uk-overflow-auto"),
+            action_buttons,
+            action=f"/new_memorization/bulk_add/{current_type}",
+            method="POST",
+        ),
+        Script(src="/public/script.js"),
+        active="Revision",
+        auth=auth,
+    )
+
+
+@app.get("/watch_list/bulk_add/{current_type}")
+def get(
+    auth,
+    item_ids: list[int],
+    current_type: str = "juz",
+    # is_part is to determine whether it came from single entry page or not
+    is_part: bool = False,
+    revision_date: str = None,
+):
+    return bulk_entry_form(auth, item_ids, current_type, is_part, revision_date)
+
+
+def bulk_entry_form(
+    auth,
+    item_ids,
+    current_type,
+    # is_part is to determine whether it came from single entry page or not
+    is_part,
+    revision_date,
+):
     def _render_row(item_id):
 
         def _render_radio(o):
@@ -2899,7 +3074,7 @@ async def post(
     return Redirect(f"/new_memorization/{current_type}")
 
 
-@rt("/watch_list")
+@rt("/watch_list/page")
 def watch_list(auth):
     query = f"""SELECT items.id, items.surah_id, pages.juz_number, pages.page_number, revisions.revision_date, revisions.mode_id
         FROM items 
@@ -2913,7 +3088,7 @@ def watch_list(auth):
     grouped = group_by_type(recent_reviews, "page")
     # print(grouped)
     rows = [
-        render_row_based_on_type(type_number, records, "page", data_for="watch_list")
+        render_row_based_on_type(type_number, records, "page", mode_name="watch_list")
         for type_number, records in grouped.items()
     ]
     table = Div(
