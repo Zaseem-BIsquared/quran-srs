@@ -2296,17 +2296,27 @@ def render_row_based_on_type(
     else:
         get_page = filter_url
     if mode_name == "watch_list":
-        # print(records)
         rev_count = str(sum(1 for item in records if item["mode_id"] == 4))
-        # print(rev_count)
         rev_date = records[-1]["revision_date"]
-        # print(rev_date)
-        due_date = (
-            (datetime.today() - datetime.strptime(rev_date, "%Y-%m-%d")).days
-            if rev_date
-            else ""
-        )
-        print(due_date)
+        if rev_date:
+            rev_dt = datetime.strptime(rev_date, "%Y-%m-%d")
+            next_rev_dt = rev_dt + timedelta(days=7)
+            next_rev_date_str = next_rev_dt.strftime("%Y-%m-%d")
+
+            today = datetime.today().date()
+            next_rev_date = next_rev_dt.date()
+
+            if next_rev_date == today:
+                due_date = "Today"
+            elif next_rev_date == today + timedelta(days=1):
+                due_date = "Tomorrow"
+            elif next_rev_date == today - timedelta(days=1):
+                due_date = "Yesterday"
+            else:
+                due_date = (next_rev_date - today).days
+        else:
+            next_rev_date = ""
+            due_date = ""
     hx_attrs = {
         "hx_get": get_page,
         "hx_vals": '{"title": "CURRENT_TITLE", "description": "CURRENT_DETAILS", "mode_name": "MODE_NAME"}'.replace(
@@ -2324,7 +2334,8 @@ def render_row_based_on_type(
         Td(rev_date) if rev_date else None,
         (
             (
-                Td(f"{due_date} days ago" if due_date != 0 else "Today"),
+                Td(f"{next_rev_date}" if next_rev_date else "-"),
+                Td(f"{due_date}" if due_date else "-"),
                 Td(rev_count if rev_count else ""),
             )
             if mode_name == "watch_list"
@@ -2585,7 +2596,11 @@ def filter_table(
             Td(f"Juz {record['juz_number']}"),
             Td(
                 A(
-                    f"Start Memorization ➡️",
+                    (
+                        f"Start Memorization ➡️"
+                        if mode_name == "new_memorization"
+                        else "Record Revision ➡️"
+                    ),
                     hx_get=f"/{mode_name}/add/{current_type}?item_id={record['id']}",
                     hx_vals='{"title": "CURRENT_TITLE", "description": "CURRENT_DETAILS", "mode_name" : "MODE_NAME"}'.replace(
                         "CURRENT_TITLE", title
@@ -3108,7 +3123,6 @@ def watch_list(auth):
         WHERE hafizs_items.status IS 'watch_list' AND items.active != 0"""
 
     recent_reviews = db.q(query)
-    print(recent_reviews)
     grouped = group_by_type(recent_reviews, "page")
     # print(grouped)
     rows = [
@@ -3122,6 +3136,7 @@ def watch_list(auth):
                     Th("NAME"),
                     Th("RANGE/DETAILS"),
                     Th("LAST REVISION DATE"),
+                    Th("NEXT REVISION DATE"),
                     Th("DUE"),
                     Th("REVISION COUNT"),
                 )
