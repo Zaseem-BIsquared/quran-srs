@@ -2553,9 +2553,13 @@ def new_memorization(auth, current_type: str):
     )
 
 
-@app.get("/new_memorization/filter/{current_type}/{type_number}")
-def filtered_table_for_new_memorization_modal(
-    auth, current_type: str, type_number: int, title: str, description: str
+def filter_table(
+    auth,
+    current_type: str,
+    type_number: int,
+    title: str,
+    description: str,
+    mode_name: str,
 ):
     if current_type == "juz":
         condition = f"pages.juz_number = {type_number}"
@@ -2565,7 +2569,7 @@ def filtered_table_for_new_memorization_modal(
         condition = f"pages.page_number = {type_number}"
     else:
         return "Invalid current_type"
-
+    # TODO Change Query for watch_list
     qry = f"""SELECT items.id, items.surah_id, pages.page_number, pages.juz_number, hafizs_items.status FROM items
                           LEFT JOIN pages ON items.page_id = pages.id
                           LEFT JOIN hafizs_items ON items.id = hafizs_items.item_id AND hafizs_items.hafiz_id = {auth}
@@ -2589,12 +2593,12 @@ def filtered_table_for_new_memorization_modal(
             Td(
                 A(
                     f"Start Memorization ➡️",
-                    hx_get=f"/new_memorization/add/{current_type}?item_id={record['id']}",
-                    hx_vals='{"title": "CURRENT_TITLE", "description": "CURRENT_DETAILS"}'.replace(
+                    hx_get=f"/{mode_name}/add/{current_type}?item_id={record['id']}",
+                    hx_vals='{"title": "CURRENT_TITLE", "description": "CURRENT_DETAILS", "mode_name" : "MODE_NAME"}'.replace(
                         "CURRENT_TITLE", title
-                    ).replace(
-                        "CURRENT_DETAILS", description
-                    ),
+                    )
+                    .replace("CURRENT_DETAILS", description)
+                    .replace("MODE_NAME", mode_name),
                     hx_target="#modal-body",
                     cls=(AT.classic),
                 ),
@@ -2631,7 +2635,7 @@ def filtered_table_for_new_memorization_modal(
         Form(
             table,
             Button("Bulk Entry", cls="bg-green-600 text-white"),
-            hx_get=f"/new_memorization/bulk_add/{current_type}",
+            hx_get=f"/{mode_name}/bulk_add/{current_type}",
             hx_target="#modal-body",
             cls="space-y-2",
         ),
@@ -2645,6 +2649,30 @@ def filtered_table_for_new_memorization_modal(
             cls=TextPresets.muted_lg,
         ),
     )
+
+
+@app.get("/new_memorization/filter/{current_type}/{type_number}")
+def filtered_table_for_new_memorization_modal(
+    auth,
+    current_type: str,
+    type_number: int,
+    title: str,
+    description: str,
+    mode_name: str = "new_memorization",
+):
+    return filter_table(auth, current_type, type_number, title, description, mode_name)
+
+
+@app.get("/watch_list/filter/{current_type}/{type_number}")
+def filtered_table_for_new_memorization_modal(
+    auth,
+    current_type: str,
+    type_number: int,
+    title: str,
+    description: str,
+    mode_name: str = "watch_list",
+):
+    return filter_table(auth, current_type, type_number, title, description, mode_name)
 
 
 def create_new_memorization_revision_form(
@@ -2804,132 +2832,11 @@ def post(current_type: str, page_no: int, item_id: int, revision_details: Revisi
     return single_entry_post(current_type, page_no, item_id, revision_details)
 
 
-@app.get("/new_memorization/bulk_add/{current_type}")
-def get(
-    auth,
-    item_ids: list[int],
-    current_type: str = "juz",
-    # is_part is to determine whether it came from single entry page or not
-    is_part: bool = False,
-    revision_date: str = None,
-):
-
-    def _render_row(item_id):
-
-        def _render_radio(o):
-            value, label = o
-            is_checked = True if value == "1" else False
-            return FormLabel(
-                Radio(
-                    id=f"rating-{item_id}",
-                    value=value,
-                    checked=is_checked,
-                    cls="toggleable-radio",
-                ),
-                Span(label),
-                cls="space-x-2",
-            )
-
-        current_page_details = items[item_id]
-        return Tr(
-            Td(
-                CheckboxX(
-                    name="ids",
-                    value=item_id,
-                    cls="revision_ids",
-                    _at_click="handleCheckboxClick($event)",
-                )
-            ),
-            Td(current_page_details.surah_name),
-            Td(P(current_page_details.page_id)),
-            Td(current_page_details.part),
-            Td(P(current_page_details.start_text, cls=(TextT.xl))),
-            Td(
-                Div(
-                    *map(_render_radio, RATING_MAP.items()),
-                    cls=(FlexT.block, FlexT.row, FlexT.wrap, "gap-x-6 gap-y-4"),
-                )
-            ),
-        )
-
-    table = Table(
-        Thead(
-            Tr(
-                Th(
-                    CheckboxX(
-                        cls="select_all", x_model="selectAll", _at_change="toggleAll()"
-                    )
-                ),
-                Th("Surah"),
-                Th("Page"),
-                Th("Part"),
-                Th("Start"),
-                Th("Rating"),
-            )
-        ),
-        Tbody(*map(_render_row, item_ids)),
-        x_data=select_all_checkbox_x_data(
-            class_name="revision_ids",
-            is_select_all="true" if len(item_ids) != 0 else "false",
-        ),
-        x_init="toggleAll()",
-    )
-
-    action_buttons = Div(
-        Button(
-            "Save",
-            cls=ButtonT.primary,
-        ),
-        A(
-            Button("Cancel", type="button", cls=ButtonT.secondary),
-            href=f"/new_memorization/{current_type}",
-        ),
-        cls=(FlexT.block, FlexT.around, FlexT.middle, "w-full"),
-    )
-    start_description = f"{get_surah_name(item_id=item_ids[0])}"
-    end_description = (
-        f" => {items[item_ids[-1]].page_id} - {get_surah_name(item_id=item_ids[-1])}"
-    )
-    description = f"{items[item_ids[0]].page_id} - {start_description}"
-    return Titled(
-        (description if len(item_ids) == 1 else description + f"{end_description}"),
-        Form(
-            Hidden(name="mode_id", value=2),
-            Hidden(name="plan_id", value=None),
-            LabelInput(
-                "Revision Date",
-                name="revision_date",
-                type="date",
-                value=(revision_date or current_time("%Y-%m-%d")),
-            ),
-            Div(table, cls="uk-overflow-auto"),
-            action_buttons,
-            action=f"/new_memorization/bulk_add/{current_type}",
-            method="POST",
-        ),
-        Script(src="/public/script.js"),
-        active="Revision",
-        auth=auth,
-    )
-
-
-@app.get("/watch_list/bulk_add/{current_type}")
-def get(
-    auth,
-    item_ids: list[int],
-    current_type: str = "juz",
-    # is_part is to determine whether it came from single entry page or not
-    is_part: bool = False,
-    revision_date: str = None,
-):
-    return bulk_entry_form(auth, item_ids, current_type, is_part, revision_date)
-
-
 def bulk_entry_form(
     auth,
     item_ids,
+    mode_name,
     current_type,
-    # is_part is to determine whether it came from single entry page or not
     is_part,
     revision_date,
 ):
@@ -3001,7 +2908,7 @@ def bulk_entry_form(
         ),
         A(
             Button("Cancel", type="button", cls=ButtonT.secondary),
-            href=f"/new_memorization/{current_type}",
+            href=f"/{mode_name}/{current_type}",
         ),
         cls=(FlexT.block, FlexT.around, FlexT.middle, "w-full"),
     )
@@ -3010,10 +2917,14 @@ def bulk_entry_form(
         f" => {items[item_ids[-1]].page_id} - {get_surah_name(item_id=item_ids[-1])}"
     )
     description = f"{items[item_ids[0]].page_id} - {start_description}"
+    if mode_name == "new_memorization":
+        mode_id = 2
+    if mode_name == "watch_list":
+        mode_id = 4
     return Titled(
         (description if len(item_ids) == 1 else description + f"{end_description}"),
         Form(
-            Hidden(name="mode_id", value=2),
+            Hidden(name="mode_id", value=mode_id),
             Hidden(name="plan_id", value=None),
             LabelInput(
                 "Revision Date",
@@ -3023,12 +2934,41 @@ def bulk_entry_form(
             ),
             Div(table, cls="uk-overflow-auto"),
             action_buttons,
-            action=f"/new_memorization/bulk_add/{current_type}",
+            action=f"/{mode_name}/bulk_add/{current_type}",
             method="POST",
         ),
         Script(src="/public/script.js"),
         active="Revision",
         auth=auth,
+    )
+
+
+@app.get("/new_memorization/bulk_add/{current_type}")
+def get(
+    auth,
+    item_ids: list[int],
+    current_type: str = "juz",
+    # is_part is to determine whether it came from single entry page or not
+    is_part: bool = False,
+    revision_date: str = None,
+):
+    mode_name = "new_memorization"
+    return bulk_entry_form(
+        auth, item_ids, mode_name, current_type, is_part, revision_date
+    )
+
+
+@app.get("/watch_list/bulk_add/{current_type}")
+def get(
+    auth,
+    item_ids: list[int],
+    current_type: str = "juz",
+    is_part: bool = False,
+    revision_date: str = None,
+):
+    mode_name = "watch_list"
+    return bulk_entry_form(
+        auth, item_ids, mode_name, current_type, is_part, revision_date
     )
 
 
