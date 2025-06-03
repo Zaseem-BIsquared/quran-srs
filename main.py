@@ -2246,6 +2246,8 @@ def render_row_based_on_type(
     _surahs = sorted({r["surah_id"] for r in records})
     _pages = sorted([r["page_number"] for r in records])
     _juzs = sorted({r["juz_number"] for r in records})
+    if mode_name == "watch_list":
+        records.sort(key=lambda x: x["revision_date"], reverse=True)
 
     def render_range(list, _type=""):
         first_description = list[0]
@@ -2297,7 +2299,7 @@ def render_row_based_on_type(
         get_page = filter_url
     if mode_name == "watch_list":
         rev_count = str(sum(1 for item in records if item["mode_id"] == 4))
-        rev_date = records[-1]["revision_date"]
+        rev_date = records[0]["revision_date"]
         if rev_date:
             rev_dt = datetime.strptime(rev_date, "%Y-%m-%d")
             next_rev_dt = rev_dt + timedelta(days=7)
@@ -3115,19 +3117,21 @@ async def post(
 
 @rt("/watch_list/page")
 def watch_list(auth):
-    query = f"""SELECT items.id, items.surah_id, pages.juz_number, pages.page_number, revisions.revision_date, revisions.mode_id
+    query = f"""SELECT revisions.id AS revision_id, items.id, items.surah_id, pages.juz_number, pages.page_number, revisions.revision_date, revisions.mode_id
         FROM items 
         LEFT JOIN hafizs_items ON items.id = hafizs_items.item_id AND hafizs_items.hafiz_id = {auth}
         LEFT JOIN pages ON items.page_id = pages.id
         LEFT JOIN revisions ON items.id = revisions.item_id
-        WHERE hafizs_items.status IS 'watch_list' AND items.active != 0"""
+        WHERE hafizs_items.mode_id = 4 AND items.active != 0"""
 
     recent_reviews = db.q(query)
     grouped = group_by_type(recent_reviews, "page")
     # print(grouped)
+    sorted_items = sorted(grouped.items(), key=lambda x: x[0], reverse=True)
+    print(sorted_items)
     rows = [
         render_row_based_on_type(type_number, records, "page", mode_name="watch_list")
-        for type_number, records in grouped.items()
+        for type_number, records in sorted_items
     ]
     table = Div(
         Table(
