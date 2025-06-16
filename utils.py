@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+import pytz
 import re
 import sqlite3
 import os
@@ -107,14 +108,8 @@ def destandardize_text(text):
     return text.title()
 
 
-def current_time(f="%Y-%m-%d %I:%M %p"):
-    return datetime.now().strftime(f)
-
-
-def calculate_date_difference(days=0, date_format="%Y-%m-%d"):
-    current_date = datetime.now()
-    target_date = current_date - timedelta(days=days)
-    return target_date.strftime(date_format)
+def current_time(f="%Y-%m-%d %I:%M %p", timezone="Asia/Calcutta"):
+    return datetime.now(pytz.timezone(timezone)).strftime(f)
 
 
 def add_days_to_date(date_str, days):

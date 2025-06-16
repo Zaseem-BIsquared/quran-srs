@@ -3,3 +3,4 @@ numpy==2.2.3
 pandas==2.2.3
 python-fasthtml==0.12.1
 fastmigrate==0.3.0
+pytz==2025.2

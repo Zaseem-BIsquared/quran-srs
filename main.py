@@ -93,9 +93,18 @@ bware = Beforeware(before, skip=["/hafiz_selection", "/login", "/logout", "/add_
 
 app, rt = fast_app(
     before=bware,
-    hdrs=(Theme.blue.headers(), hyperscript_header, alpinejs_header),
+    hdrs=(
+        Theme.blue.headers(),
+        hyperscript_header,
+        alpinejs_header,
+        Script(src="/public/set_user_timezone.js"),
+    ),
     bodykw={"hx-boost": "true"},
 )
+
+
+def get_timezone(sess):
+    return sess.get("user_timezone", "Asia/Kolkata")
 
 
 def get_item_id(page_number: int, not_memorized_only: bool = False):
@@ -251,12 +260,12 @@ def split_page_range(page_range: str):
     return start_id, end_id
 
 
-def datewise_summary_table(show=None, hafiz_id=None):
+def datewise_summary_table(sess, show=None, hafiz_id=None):
     qry = f"SELECT MIN(revision_date) AS earliest_date FROM {revisions}"
     qry = (qry + f" WHERE hafiz_id = {hafiz_id}") if hafiz_id else qry
     result = db.q(qry)
     earliest_date = result[0]["earliest_date"]
-    current_date = current_time("%Y-%m-%d")
+    current_date = current_time("%Y-%m-%d", get_timezone(sess))
 
     date_range = pd.date_range(
         start=(earliest_date or current_date), end=current_date, freq="D"
@@ -385,12 +394,12 @@ def datewise_summary_table(show=None, hafiz_id=None):
     return datewise_table
 
 
-def render_hafiz_card(hafizs_user, auth):
+def render_hafiz_card(hafizs_user, auth, sess):
     is_current_hafizs_user = auth != hafizs_user.hafiz_id
     return Card(
         (
             Subtitle("last 3 revision")(
-                datewise_summary_table(show=3, hafiz_id=hafizs_user.hafiz_id)
+                datewise_summary_table(sess, show=3, hafiz_id=hafizs_user.hafiz_id)
             ),
         ),
         header=DivFullySpaced(H3(hafizs[hafizs_user.hafiz_id].name)),
@@ -463,6 +472,11 @@ def logout(sess):
     return RedirectResponse("/login", status_code=303)
 
 
+@app.post("/set-timezone")
+def set_user_timezone(timezone: str, sess):
+    sess["user_timezone"] = timezone
+
+
 @app.post("/add_hafiz")
 def add_hafiz_and_relations(hafiz: Hafiz, relationship: str, sess):
     hafiz_id = hafizs.insert(hafiz)
@@ -471,7 +485,7 @@ def add_hafiz_and_relations(hafiz: Hafiz, relationship: str, sess):
         user_id=sess["user_auth"],
         relationship=relationship,
         granted_by_user_id=sess["user_auth"],
-        granted_at=datetime.now().strftime("%d-%m-%y %H:%M:%S"),
+        granted_at=current_time("%d-%m-%y %H:%M:%S", get_timezone(sess)),
     )
     return RedirectResponse("/hafiz_selection", status_code=303)
 
@@ -489,7 +503,9 @@ def hafiz_selection(sess):
 
     # cards = [render_hafiz_card(h, auth) for h in hafizs()]
     cards = [
-        render_hafiz_card(h, auth) for h in hafizs_users() if h.user_id == user_auth
+        render_hafiz_card(h, auth, sess)
+        for h in hafizs_users()
+        if h.user_id == user_auth
     ]
     hafiz_form = Card(
         Titled(
@@ -622,7 +638,7 @@ def tables_main_area(*args, active_table=None, auth=None):
 
 
 @rt
-def index(auth):
+def index(sess, auth):
     revision_data = revisions(where="mode_id = 1")
     last_added_item_id = revision_data[-1].item_id if revision_data else None
 
@@ -737,13 +753,15 @@ def index(auth):
     )
 
     recent_review_table = make_summary_table(
-        mode_ids=["2", "3"], route="recent_review", auth=auth
+        mode_ids=["2", "3"], route="recent_review", auth=auth, sess=sess
     )
 
-    watch_list_table = make_summary_table(mode_ids=["4"], route="watch_list", auth=auth)
+    watch_list_table = make_summary_table(
+        mode_ids=["4"], route="watch_list", auth=auth, sess=sess
+    )
 
     new_memorization_table = make_summary_table(
-        mode_ids=["unmemorized"], route="new_memorization", auth=auth
+        mode_ids=["unmemorized"], route="new_memorization", auth=auth, sess=sess
     )
     modal = ModalContainer(
         ModalDialog(
@@ -779,7 +797,7 @@ def index(auth):
             Divider(),
             watch_list_table,
             Divider(),
-            datewise_summary_table(hafiz_id=auth),
+            datewise_summary_table(sess=sess, hafiz_id=auth),
         ),
         Div(modal),
         active="Home",
@@ -787,7 +805,7 @@ def index(auth):
     )
 
 
-def make_summary_table(mode_ids: list[str], route: str, auth: str):
+def make_summary_table(mode_ids: list[str], route: str, auth: str, sess):
     if mode_ids == ["unmemorized"]:
         last_mem_id = get_last_memorized_item_id(auth)
         qry = f"""
@@ -810,7 +828,10 @@ def make_summary_table(mode_ids: list[str], route: str, auth: str):
             dict.fromkeys(
                 i["page_number"]
                 for i in ct
-                if day_diff(i["next_review"], current_time("%Y-%m-%d")) >= 0
+                if day_diff(
+                    i["next_review"], current_time("%Y-%m-%d", get_timezone(sess))
+                )
+                >= 0
             )
         )
 
@@ -1312,7 +1333,7 @@ def toggle_input_fields(*args, show_id_fields=False):
     )
 
 
-def create_revision_form(type, show_id_fields=False):
+def create_revision_form(type, sess, show_id_fields=False):
     def RadioLabel(o):
         value, label = o
         is_checked = True if value == "1" else False
@@ -1343,7 +1364,7 @@ def create_revision_form(type, show_id_fields=False):
             "Revision Date",
             name="revision_date",
             type="date",
-            value=current_time("%Y-%m-%d"),
+            value=current_time("%Y-%m-%d", get_timezone(sess)),
             cls="space-y-2 col-span-2",
         ),
     )
@@ -1376,12 +1397,12 @@ def create_revision_form(type, show_id_fields=False):
 
 
 @rt("/revision/edit/{revision_id}")
-def get(revision_id: int, auth):
+def get(revision_id: int, auth, sess):
     current_revision = revisions[revision_id].__dict__
     current_revision["page_no"] = items[current_revision["item_id"]].page_id
     # Convert rating to string in order to make the fill_form to select the option.
     current_revision["rating"] = str(current_revision["rating"])
-    form = create_revision_form("edit")
+    form = create_revision_form("edit", sess=sess)
     return main_area(
         Titled("Edit Revision", fill_form(form, current_revision)),
         active="Revision",
@@ -1571,7 +1592,12 @@ def post(type: str, page: str):
 
 @rt("/revision/add")
 def get(
-    auth, page: str, max_page: int = 605, date: str = None, show_id_fields: bool = False
+    auth,
+    sess,
+    page: str,
+    max_page: int = 605,
+    date: str = None,
+    show_id_fields: bool = False,
 ):
     if "-" in page:
         page = page.split("-")[0]
@@ -1598,7 +1624,7 @@ def get(
         Titled(
             f"{page} - {get_surah_name(page_id=page)} - {pages[page].start_text}",
             fill_form(
-                create_revision_form("add", show_id_fields=show_id_fields),
+                create_revision_form("add", sess=sess, show_id_fields=show_id_fields),
                 {
                     "page_no": page,
                     "mode_id": defalut_mode_value,
@@ -1637,6 +1663,7 @@ def post(page_no: int, revision_details: Revision, show_id_fields: bool = False)
 @app.get("/revision/bulk_add")
 def get(
     auth,
+    sess,
     page: str,
     # is_part is to determine whether it came from single entry page or not
     is_part: bool = False,
@@ -1826,7 +1853,9 @@ def get(
                     "Revision Date",
                     name="revision_date",
                     type="date",
-                    value=(revision_date or current_time("%Y-%m-%d")),
+                    value=(
+                        revision_date or current_time("%Y-%m-%d", get_timezone(sess))
+                    ),
                     cls="space-y-2 col-span-2",
                 ),
                 show_id_fields=show_id_fields,
@@ -2334,7 +2363,7 @@ def get_last_recent_review_date(item_id):
 
 
 @app.get("/recent_review")
-def recent_review_view(auth):
+def recent_review_view(auth, sess):
     hafiz_items_data = hafizs_items(where="mode_id IN (2,3,4)", order_by="item_id ASC")
     items_id_with_mode = [
         {
@@ -2356,10 +2385,7 @@ def recent_review_view(auth):
     ct = db.q(qry)
     earliest_date = ct[0]["earliest_date"]
 
-    # generate last ten days for column header
-    # earliest_date = calculate_date_difference(days=10, date_format="%Y-%m-%d")
-
-    current_date = current_time("%Y-%m-%d")
+    current_date = current_time("%Y-%m-%d", get_timezone(sess))
     # Change the date range to start from the earliest date
     date_range = pd.date_range(
         start=(earliest_date or current_date), end=current_date, freq="D"
@@ -2520,7 +2546,7 @@ def update_status_for_recent_review(item_id: int, date: str, is_checked: bool = 
 
 
 @app.post("/recent_review/graduate")
-def graduate_recent_review(item_id: int, auth, is_checked: bool = False):
+def graduate_recent_review(item_id: int, auth, sess, is_checked: bool = False):
     last_review = get_last_recent_review_date(item_id)
 
     if is_checked:
@@ -2552,7 +2578,7 @@ def graduate_recent_review(item_id: int, auth, is_checked: bool = False):
 
     # We can also use the route funtion to return the entire page as output
     # And the HTMX headers are used to change the (re)target,(re)select only the current row
-    return recent_review_view(auth), HtmxResponseHeaders(
+    return recent_review_view(auth, sess), HtmxResponseHeaders(
         retarget=f"#row-{item_id}",
         reselect=f"#row-{item_id}",
         reswap="outerHTML",
@@ -2572,7 +2598,7 @@ def get_last_watch_list_date(item_id):
 
 
 @app.get("/watch_list")
-def watch_list_view(auth):
+def watch_list_view(auth, sess):
     week_column = ["Week 1", "Week 2", "Week 3", "Week 4", "Week 5", "Week 6", "Week 7"]
 
     # This is to only get the watch_list item_id (which are not graduated yet)
@@ -2620,7 +2646,9 @@ def watch_list_view(auth):
         revision_count = len(watch_list_revisions)
 
         if not is_graduated:
-            due_day = day_diff(last_review, current_time("%Y-%m-%d"))
+            due_day = day_diff(
+                last_review, current_time("%Y-%m-%d", get_timezone(sess))
+            )
         else:
             due_day = 0
 
@@ -2649,7 +2677,7 @@ def watch_list_view(auth):
                 RATING_MAP[f"{rev.rating}"].split()[0],
                 (
                     f" {date_to_human_readable(rev_date)}"
-                    if not (rev_date == current_time("%Y-%m-%d"))
+                    if not (rev_date == current_time("%Y-%m-%d", get_timezone(sess)))
                     else None
                 ),
             )
@@ -2753,7 +2781,7 @@ def watch_list_view(auth):
                 "Revision Date",
                 name="revision_date",
                 type="date",
-                value=current_time("%Y-%m-%d"),
+                value=current_time("%Y-%m-%d", get_timezone(sess)),
                 id="global_date",
                 cls="flex-1",
             ),
@@ -2778,9 +2806,9 @@ def watch_list_view(auth):
     )
 
 
-def watch_list_form(item_id: int, min_date: str, _type: str):
+def watch_list_form(item_id: int, min_date: str, _type: str, sess):
     page = items[item_id].page_id
-    current_date = current_time("%Y-%m-%d")
+    current_date = current_time("%Y-%m-%d", get_timezone(sess))
 
     def RadioLabel(o):
         value, label = o
@@ -2841,11 +2869,12 @@ def watch_list_form(item_id: int, min_date: str, _type: str):
 
 
 @app.get("/watch_list/edit/{rev_id}")
-def watch_list_edit_form(rev_id: int):
+def watch_list_edit_form(rev_id: int, sess):
     current_revision = revisions[rev_id].__dict__
     current_revision["rating"] = str(current_revision["rating"])
     return fill_form(
-        watch_list_form(current_revision["item_id"], "", "edit"), current_revision
+        watch_list_form(current_revision["item_id"], "", "edit", sess=sess),
+        current_revision,
     )
 
 
@@ -2902,7 +2931,7 @@ def watch_list_add_data(revision_details: Revision, auth):
 
 
 @app.post("/watch_list/graduate")
-def graduate_watch_list(item_id: int, auth, is_checked: bool = False):
+def graduate_watch_list(item_id: int, auth, sess, is_checked: bool = False):
     last_review = get_last_watch_list_date(item_id)
     if is_checked:
         data_to_update = {
@@ -2926,7 +2955,7 @@ def graduate_watch_list(item_id: int, auth, is_checked: bool = False):
     if current_hafiz_items:
         hafizs_items.update(data_to_update, current_hafiz_items[0].id)
 
-    return watch_list_view(auth), HtmxResponseHeaders(
+    return watch_list_view(auth, sess), HtmxResponseHeaders(
         retarget=f"#row-{item_id}",
         reselect=f"#row-{item_id}",
         reswap="outerHTML",
@@ -3451,7 +3480,7 @@ def filtered_table_for_new_memorization_modal(
 
 
 def create_new_memorization_revision_form(
-    current_type: str, title: str, description: str
+    current_type: str, title: str, description: str, sess
 ):
     def RadioLabel(o):
         value, label = o
@@ -3472,7 +3501,7 @@ def create_new_memorization_revision_form(
                 "Revision Date",
                 name="revision_date",
                 type="date",
-                value=current_time("%Y-%m-%d"),
+                value=current_time("%Y-%m-%d", get_timezone(sess)),
             ),
             Input(name="page_no", type="hidden"),
             Input(name="mode_id", type="hidden"),
@@ -3512,6 +3541,7 @@ def create_new_memorization_revision_form(
 
 @rt("/new_memorization/add/{current_type}")
 def get(
+    sess,
     current_type: str,
     item_id: str,
     title: str = None,
@@ -3527,7 +3557,9 @@ def get(
     return Titled(
         f"{page} - {get_surah_name(item_id=item_id)} - {items[item_id].start_text}",
         fill_form(
-            create_new_memorization_revision_form(current_type, title, description),
+            create_new_memorization_revision_form(
+                current_type, title, description, sess
+            ),
             {
                 "page_no": page,
                 "mode_id": 2,
@@ -3566,6 +3598,7 @@ def post(
 @app.get("/new_memorization/bulk_add/{current_type}")
 def get(
     auth,
+    sess,
     item_ids: list[int],
     current_type: str = "juz",
     # is_part is to determine whether it came from single entry page or not
@@ -3660,7 +3693,7 @@ def get(
                 "Revision Date",
                 name="revision_date",
                 type="date",
-                value=(revision_date or current_time("%Y-%m-%d")),
+                value=(revision_date or current_time("%Y-%m-%d", get_timezone(sess))),
             ),
             Div(table, cls="uk-overflow-auto"),
             action_buttons,
