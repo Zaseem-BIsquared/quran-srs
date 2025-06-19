@@ -579,6 +579,7 @@ def main_area(*args, active=None, auth=None):
                 A("Revision", href=revision, cls=is_active("Revision")),
                 A("Tables", href="/tables", cls=is_active("Tables")),
                 A("Report", href="/report", cls=is_active("Report")),
+                A("Report v2", href="/report_v2", cls=is_active("Report v2")),
                 # A(
                 #     "New Memorization",
                 #     href="/new_memorization/juz",
@@ -811,6 +812,151 @@ def index(auth):
 @app.get("/report")
 def datewise_summary_table_view(auth):
     return main_area(datewise_summary_table(hafiz_id=auth), active="Report", auth=auth)
+
+
+@app.get("/report_v2")
+def datewise_summary_table_view_v2(auth):
+    show = None
+    qry = f"SELECT MIN(revision_date) AS earliest_date FROM {revisions}"
+    qry = (qry + f" WHERE hafiz_id = {auth}") if auth else qry
+    result = db.q(qry)
+    earliest_date = result[0]["earliest_date"]
+    current_date = current_time("%Y-%m-%d")
+
+    date_range = pd.date_range(
+        start=(earliest_date or current_date), end=current_date, freq="D"
+    )
+    date_range = [date.strftime("%Y-%m-%d") for date in date_range][::-1]
+    date_range = date_range[:show] if show else date_range
+
+    sorted_mode_id = sorted([1, 2, 3, 4], key=lambda id: extract_mode_sort_number(id))
+
+    def _render_datewise_row(date):
+        # Get the unique modes for that particular date
+        rev_condition = f"WHERE revisions.revision_date = '{date}'" + (
+            f" AND revisions.hafiz_id = {auth}" if auth else ""
+        )
+        unique_modes = db.q(f"SELECT DISTINCT mode_id FROM {revisions} {rev_condition}")
+        unique_modes = [m["mode_id"] for m in unique_modes]
+        unique_modes = sorted(unique_modes, key=lambda id: extract_mode_sort_number(id))
+
+        mode_with_ids_and_pages = []
+        for mode_id in unique_modes:
+            # Joining the revisions and items table to get these columns
+            # rev_id(Ids are needed for bulk_edit),
+            # items_id(To correctly render the surah name if its starts from part),
+            # page_id(To group pages into range)
+            rev_query = f"SELECT revisions.id, revisions.item_id, items.page_id FROM {revisions} LEFT JOIN {items} ON revisions.item_id = items.id {rev_condition} AND mode_id = {mode_id}"
+            current_date_and_mode_revisions = db.q(rev_query)
+            mode_with_ids_and_pages.append(
+                {
+                    "mode_id": mode_id,
+                    "revision_data": current_date_and_mode_revisions,
+                }
+            )
+
+        def _render_pages_range(revisions_data: list):
+            page_ranges = compact_format(sorted([r["page_id"] for r in revisions_data]))
+
+            # get the surah name using the item_id for the corresponding page
+            def _render_page(page):
+                item_id = [
+                    r["item_id"] for r in revisions_data if r["page_id"] == page
+                ][0]
+                return Span(
+                    Span(page, cls=TextPresets.bold_sm),
+                    f" - {get_surah_name(item_id=item_id)}",
+                )
+
+            # This function will return the list of rev_id based on max and min page for bulk_edit url
+            def get_ids_for_page_range(data, min_page, max_page=None):
+                result = []
+                # Filter based on page_id values
+                for item in data:
+                    page_id = item["page_id"]
+                    if max_page is None:
+                        if page_id == min_page:
+                            result.append(item["id"])
+                    else:
+                        if min_page <= page_id <= max_page:
+                            result.append(item["id"])
+                # Sort the result and convert them into str
+                return list(map(str, sorted(result)))
+
+            ctn = []
+            for page_range in page_ranges.split(","):
+                start_page, end_page = split_page_range(page_range)
+                if end_page:
+                    range_desc = (
+                        _render_page(start_page),
+                        Span(" -> "),
+                        _render_page(end_page),
+                    )
+                else:
+                    range_desc = _render_page(start_page)
+
+                ctn.append(
+                    Span(
+                        A(
+                            *range_desc,
+                            hx_get=f"/revision/bulk_edit?ids={','.join(get_ids_for_page_range(revisions_data, start_page, end_page))}",
+                            hx_push_url="true",
+                            hx_target="body",
+                            cls=(AT.classic),
+                        ),
+                        cls="block",
+                    )
+                )
+
+            return P(
+                *ctn,
+                cls="space-y-3",
+            )
+
+        # To handle if the date has no entry
+        if not mode_with_ids_and_pages:
+            return [
+                Tr(
+                    Td(date_to_human_readable(date)),
+                    Td("-"),
+                    Td("-"),
+                    Td("-"),
+                )
+            ]
+
+        rows = [
+            Tr(
+                (
+                    # Only add the date for the first row and use rowspan to expand them for the modes breakdown
+                    Td(
+                        date_to_human_readable(date),
+                        rowspan=f"{len(mode_with_ids_and_pages)}",
+                    )
+                    if mode_with_ids_and_pages[0]["mode_id"] == o["mode_id"]
+                    else None
+                ),
+                Td(modes[o["mode_id"]].name),
+                Td(len(o["revision_data"])),
+                Td(_render_pages_range(o["revision_data"])),
+            )
+            for o in mode_with_ids_and_pages
+        ]
+        return rows
+
+    datewise_table = Div(
+        Table(
+            Thead(
+                Tr(
+                    Th("Date"),
+                    Th("Total Count"),
+                    *[Th(modes[i].name) for i in sorted_mode_id],
+                )
+            ),
+            Tbody(*flatten_list(map(_render_datewise_row, date_range))),
+        ),
+        cls="uk-overflow-auto",
+    )
+    return main_area(datewise_table, active="Report v2", auth=auth)
 
 
 def render_checkbox(auth, item_id=None, page_id=None, label_text=None):
