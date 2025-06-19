@@ -836,12 +836,9 @@ def datewise_summary_table_view_v2(auth):
         rev_condition = f"WHERE revisions.revision_date = '{date}'" + (
             f" AND revisions.hafiz_id = {auth}" if auth else ""
         )
-        unique_modes = db.q(f"SELECT DISTINCT mode_id FROM {revisions} {rev_condition}")
-        unique_modes = [m["mode_id"] for m in unique_modes]
-        unique_modes = sorted(unique_modes, key=lambda id: extract_mode_sort_number(id))
 
         mode_with_ids_and_pages = []
-        for mode_id in unique_modes:
+        for mode_id in sorted_mode_id:
             # Joining the revisions and items table to get these columns
             # rev_id(Ids are needed for bulk_edit),
             # items_id(To correctly render the surah name if its starts from part),
@@ -856,6 +853,8 @@ def datewise_summary_table_view_v2(auth):
             )
 
         def _render_pages_range(revisions_data: list):
+            if not revisions_data:
+                return None
             page_ranges = compact_format(sorted([r["page_id"] for r in revisions_data]))
 
             # get the surah name using the item_id for the corresponding page
@@ -913,46 +912,44 @@ def datewise_summary_table_view_v2(auth):
                 cls="space-y-3",
             )
 
-        # To handle if the date has no entry
-        if not mode_with_ids_and_pages:
-            return [
-                Tr(
-                    Td(date_to_human_readable(date)),
-                    Td("-"),
-                    Td("-"),
-                    Td("-"),
-                )
-            ]
-
-        rows = [
-            Tr(
-                (
-                    # Only add the date for the first row and use rowspan to expand them for the modes breakdown
-                    Td(
-                        date_to_human_readable(date),
-                        rowspan=f"{len(mode_with_ids_and_pages)}",
+        return Tr(
+            Td(date_to_human_readable(date)),
+            # FIXME: this counts the page part as a full page
+            Td(sum([len(i["revision_data"]) for i in mode_with_ids_and_pages])),
+            *flatten_list(
+                [
+                    (
+                        Td(
+                            len(o["revision_data"])
+                            if len(o["revision_data"]) != 0
+                            else None
+                        ),
+                        Td(_render_pages_range(o["revision_data"])),
                     )
-                    if mode_with_ids_and_pages[0]["mode_id"] == o["mode_id"]
-                    else None
-                ),
-                Td(modes[o["mode_id"]].name),
-                Td(len(o["revision_data"])),
-                Td(_render_pages_range(o["revision_data"])),
-            )
-            for o in mode_with_ids_and_pages
-        ]
-        return rows
+                    for o in mode_with_ids_and_pages
+                ]
+            ),
+            # This will only add border to the even childs but not the last child
+            cls="[&_td:nth-child(even):not(:last-child)]:border-r",
+        )
 
     datewise_table = Div(
         Table(
             Thead(
                 Tr(
-                    Th("Date"),
-                    Th("Total Count"),
-                    *[Th(modes[i].name) for i in sorted_mode_id],
-                )
+                    Th("Date", rowspan=2),
+                    Th("Total Count", rowspan=2),
+                    *[Th(modes[i].name, colspan=2) for i in sorted_mode_id],
+                    cls="[&_th:not(:last-child):not(:first-child)]:border-r",
+                ),
+                Tr(
+                    *flatten_list(
+                        [(Th("Count"), Th("Range")) for _ in range(len(sorted_mode_id))]
+                    ),
+                    cls="[&_th:nth-child(even):not(:last-child)]:border-r",
+                ),
             ),
-            Tbody(*flatten_list(map(_render_datewise_row, date_range))),
+            Tbody(*map(_render_datewise_row, date_range)),
         ),
         cls="uk-overflow-auto",
     )
