@@ -179,6 +179,18 @@ def get_page_number(item_id):
     return pages[page_id].page_number
 
 
+def get_page_part(item_id):
+    page_part = items[item_id].part
+    return page_part
+
+
+def format_page_title_with_part(item_id):
+    part = get_page_part(item_id)
+    page = f"Page {get_page_number(item_id)}"
+    page_part = f" - Part {part}" if part else ""
+    return page + page_part
+
+
 def get_last_item_id():
     return items(where="active = 1", order_by="id DESC")[0].id
 
@@ -4302,6 +4314,7 @@ async def post(
 def page_details_view(auth):
     display_pages_query = f"""SELECT 
                             items.id,
+                            items.part,
                             items.surah_id,
                             pages.page_number,
                             pages.juz_number,
@@ -4348,7 +4361,7 @@ def page_details_view(auth):
     ):
         r = records[0]
 
-        title = f"Page {r['page_number']}"
+        title = format_page_title_with_part(r["id"])
         details = f"Juz {r['juz_number']} | {surahs[r['surah_id']].name}"
 
         get_page = f"/page_details/{r['id']}"  # item_id
