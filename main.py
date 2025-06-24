@@ -2804,7 +2804,7 @@ def filtered_table_for_modal(
                     _at_click="handleCheckboxClick($event)",
                 ),
             ),
-            Td(record["page_number"]),
+            Td(format_page_title_with_part(record["id"])),
             Td(surahs[record["surah_id"]].name),
             Td(f"Juz {record['juz_number']}"),
             Td(current_status),
